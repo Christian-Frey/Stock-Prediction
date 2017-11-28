@@ -1,7 +1,8 @@
-stock_prediction
+Stock Prediction using RNN's
 ==============================
 
-Using RNN's to predict the historical price of securities.
+Using RNN's to predict the historical price of securities. I use data from Yahoo Finance
+as the label, and economic series data from FRED at the St. Louis Federal Reserve. 
 
 Project Organization
 ------------
