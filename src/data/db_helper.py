@@ -4,6 +4,7 @@ import sqlite3
 import sys
 from sqlite3 import Error
 import pandas as pd
+import re
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -63,7 +64,6 @@ class DB_Helper:
         except Error as e:
             print(e)
 
-    # TODO: Add company from JSON
     def add_company(self, name, symbol, exchange, m_cap, industry=None, sector=None):
         sql = 'INSERT INTO company(c_name, symbol, exchange, market_cap, industry, sector) values (?,?,?,?,?,?)'
         try:
@@ -73,6 +73,42 @@ class DB_Helper:
         except Error as e:
             logging.error('Could not add company %s', name)
 
+    def add_companies_from_csv(self, f_path, exchange):
+        """
+        Bulk adding companies with data downloaded from the NASDAQ website. URL is 
+        http://www.nasdaq.com/screening/companies-by-industry.aspx, then select an exchange.
+        We expect to have the following headers:
+        'Symbol', 'Name', 'LastSale', 'MarketCap', 'ADR TSO', 'IPOyear', 'Sector', 'Industry', 'Summary Quote'
+
+            :param f_path: the full path to the data file.
+            :param exchange: A string representing the exchange
+        """
+        df = pd.read_csv(f_path)
+        df = df.dropna(axis='columns', how='all')
+        if exchange == 'NYSE':
+            mcap_replacer = {  # converting between '$4.32B' and '432000000000' so it can be classed as a int
+                '$': '',
+                '.': '',
+                'T': '000000000000',
+                'B': '000000000',
+                'M': '000000'
+            }
+            # re trickery from https://stackoverflow.com/a/6117124
+            rep = dict((re.escape(k), v) for k, v in mcap_replacer.items())
+            pattern = re.compile('|'.join(rep.keys()))
+            df['MarketCap'] = df['MarketCap'].str.replace(pattern, lambda m:rep[re.escape(m.group(0))])
+
+        if exchange == 'NASDAQ':
+            df = df.drop(columns=['ADR TSO'])
+        df['exchange'] = exchange
+
+        df = df.rename(columns={'Symbol': 'symbol', 'Name': 'c_name', 'MarketCap': 'market_cap', 'Industry': 'industry', 'Sector': 'sector'})\
+        .drop(columns=['LastSale', 'IPOyear', 'Summary Quote'])\
+        .fillna(value=0)
+
+        df.to_sql('company', self._conn, if_exists='append', index=False)
+
+ 
     def get_data_series(self, s_id):
         """
         Gets the requested series from the data_series table, and parses it into a dictionary, where
@@ -168,7 +204,7 @@ class DB_Helper:
         if query.fetchone() is not None:
             return True
         return False
-    
+
 def main():
     db_path = os.environ.get('DB_PATH')
     db = DB_Helper(db_path)
